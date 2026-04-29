@@ -1,0 +1,37 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+
+# Node (in case anyone adds it later)
+node_modules/
+
+# Logs
+*.log
+
+# Playwright MCP scratch
+.playwright-mcp/
+qa-flow*.png
+
+# Per-quiz fetched assets are agent-generated and excluded by default.
+# The example quiz is allowlisted below so the project works on a fresh clone.
+data/quizzes/*/images/
+!data/quizzes/example-historical-figures/images/
+!data/quizzes/example-historical-figures/images/*
+
+# Lockfiles created by fetch.py
+*.lock
