@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>celeb-quiz</title>
+  <link rel="stylesheet" href="/web/css/styles.css">
+</head>
+<body>
+  <main class="container stack">
+    <header>
+      <h1>celeb-quiz</h1>
+      <p class="muted">사진을 보고 인물 이름을 맞히는 듀얼 모니터 퀴즈</p>
+    </header>
+
+    <section>
+      <h2>퀴즈 선택</h2>
+      <div id="quiz-grid" class="quiz-grid" aria-live="polite">
+        <!-- populated by app.js -->
+      </div>
+    </section>
+
+    <section id="settings" hidden>
+      <h2>설정</h2>
+      <div class="row" style="gap: 1.5rem; flex-wrap: wrap;">
+        <div class="field" style="max-width: 12rem;">
+          <label for="countdown">카운트다운 (초)</label>
+          <input id="countdown" type="number" min="3" max="60" step="1">
+        </div>
+        <div class="row" style="margin-top: 1.4rem;">
+          <button id="start-btn" class="btn btn-primary" disabled>Start →</button>
+          <span id="start-hint" class="muted">퀴즈를 선택해 주세요</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="how-to" class="muted" style="margin-top: 2rem;">
+      <h2>사용법</h2>
+      <ol>
+        <li>퀴즈를 선택하고 카운트다운을 정한 뒤 <kbd class="kbd">Start</kbd> 클릭</li>
+        <li>새 창(Player)이 열리면 두 번째 모니터로 드래그해서 <kbd class="kbd">F11</kbd> 전체화면</li>
+        <li>현재 창(Host)에서 <kbd class="kbd">Space</kbd>=다음, <kbd class="kbd">R</kbd>=정답 공개, <kbd class="kbd">Esc</kbd>=재시작</li>
+      </ol>
+    </section>
+  </main>
+
+  <script type="module" src="/web/js/app.js"></script>
+</body>
+</html>
