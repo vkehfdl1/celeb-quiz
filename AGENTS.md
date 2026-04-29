@@ -33,15 +33,28 @@ Optional / progressively populated fields:
 `quiz.json` is the per-quiz manifest, written by the setup skill.
 `data/quizzes/index.json` is the top-level discovery file, also written by setup.
 
-## 3. Image license policy (NON-NEGOTIABLE)
+## 3. Image source policy
 
-- Only `Public Domain`, `CC0`, `CC-BY`, or `CC-BY-SA` images may be saved.
-- Non-free, fair-use, "all rights reserved", or unknown-license images MUST be skipped
-  (set `fetch_status: "no_free_image"`).
+### Default mode (publishable, share-safe)
+
+- `--source wiki-free` (default): only `Public Domain`, `CC0`, `CC-BY`, `CC-BY-SA` images
+  via Wikimedia Commons `pilicense=free`.
 - For CC-BY / CC-BY-SA: `artist` and `license_url` MUST be present and the player UI
-  MUST always display attribution.
-- Use the Wikimedia Commons `iiprop=extmetadata` API to read license metadata; never
-  guess.
+  always displays attribution.
+- This is the only mode safe for sharing the resulting `data/` directory publicly.
+
+### Private/non-commercial mode
+
+- `--source wiki-any`: drops the free-license filter; uses Wikipedia's lead image
+  regardless of license.
+- `--source auto`: full fallback chain `wiki-free → wiki-any → DuckDuckGo → Bing`.
+  Maximizes hit rate but pulls images of unknown copyright status.
+- `--allow-non-free`: alias for `--source auto`.
+
+These modes are intended for private gatherings (club MTs, classroom games)
+where the resulting quiz is not redistributed. The repo MIT license covers
+the code, NOT the images fetched in non-free mode. Do NOT push such `data/`
+directories to a public repo or use commercially.
 
 ## 4. Naming & slug rules
 
@@ -65,7 +78,7 @@ Optional / progressively populated fields:
   https://foundation.wikimedia.org/wiki/Policy:User-Agent_policy:
   `celeb-quiz-image/1.0 (+https://github.com/vkehfdl1/celeb-quiz) Python/3.x`
 - Sequential requests, ~1 req/sec. Exponential backoff on HTTP 429.
-- Filter `pilicense=free` on `prop=pageimages`.
+- Filter `pilicense=free` on `prop=pageimages` in the default `--source wiki-free` mode.
 - Try `ko.wikipedia.org` first, fall back to `en.wikipedia.org`.
 
 ## 7. Atomic commit policy
@@ -86,7 +99,8 @@ Optional / progressively populated fields:
 
 - Do NOT add npm or pip dependencies.
 - Do NOT add a build step (Webpack, Vite, Rollup, Babel, TypeScript).
-- Do NOT bypass the license filter to "make more quizzes work".
+- Do NOT publish or commercially use `data/` directories fetched with `--source wiki-any`,
+  `--source auto`, or `--allow-non-free`.
 - Do NOT inline images as base64 into `list.jsonl`.
 - Do NOT commit fetched images for any quiz other than `example-historical-figures`.
 - Do NOT change `id` of an existing entry without also renaming its image file.

@@ -65,13 +65,13 @@ The skill carries a romanization rule book
 so Korean names get clean kebab-case `id` fields like `lee-jung-hoo` and
 `yi-sun-sin`.
 
-### 2. `celeb-quiz-image` — Wikipedia / Wikimedia Commons photo fetch
+### 2. `celeb-quiz-image` — Wikipedia / web photo fetch
 
 Trigger phrases: *"퀴즈 인물 사진 가져오기", "fetch celebrity quiz images",
 "위키 사진 다운로드"*.
 
 The skill wraps a small Python script (`scripts/fetch.py`, urllib stdlib only)
-that:
+that defaults to a publishable Wikimedia-only mode:
 
 - searches `ko.wikipedia.org` first, falls back to `en.wikipedia.org`
 - pulls the page's representative image via `prop=pageimages&pilicense=free`
@@ -79,10 +79,10 @@ that:
 - downloads the original to `<quiz-dir>/images/<id>.<ext>`
 - atomically rewrites `list.jsonl` with full enrichment fields
 
-License policy is non-negotiable: only `Public Domain`, `CC0`, `CC-BY`,
-`CC-BY-SA`. NC, ND, fair use, and unknown licenses are rejected. See
-[the policy doc](./.agents/skills/celeb-quiz-image/references/license-policy.md)
-for the full list.
+For private/non-commercial gatherings, `--source wiki-any` drops the Wikimedia
+free-license filter and `--source auto` tries `wiki-free → wiki-any →
+DuckDuckGo → Bing`. Those modes may save unknown/non-free images and are not
+safe to redistribute.
 
 ```bash
 python3 .agents/skills/celeb-quiz-image/scripts/fetch.py \
@@ -90,7 +90,8 @@ python3 .agents/skills/celeb-quiz-image/scripts/fetch.py \
 ```
 
 Useful flags: `--force` (re-fetch already-ok entries), `--limit N`
-(spot-check first N).
+(spot-check first N), `--source wiki-free|wiki-any|auto`, and
+`--allow-non-free` (alias for `--source auto`).
 
 ### 3. `celeb-quiz-setup` — validate + manifest builder
 
@@ -147,12 +148,13 @@ If the player window gets closed accidentally, click **Reopen Player ↗** on th
 host. Both windows share a channel name derived from the quiz slug, so the
 reopened popup picks up the in-progress session immediately.
 
-## Image license policy
+## Image source policy
 
-This project will only ever store free-licensed images. The fetcher enforces
+By default, this project stores only free-licensed images. The fetcher enforces
 this server-side via Wikimedia's `pilicense=free` filter, and the player UI
 always shows attribution in the bottom-right corner — both legally and
-aesthetically required for CC-BY content.
+aesthetically required for CC-BY content. This default mode is the only mode
+safe for publishing or redistributing quiz data.
 
 | Allowed | Forbidden |
 |---------|-----------|
@@ -161,8 +163,10 @@ aesthetically required for CC-BY content.
 | CC-BY (with attribution) | NC (NonCommercial) |
 | CC-BY-SA (with attribution) | ND (NoDerivs) |
 
-If you hand-edit `list.jsonl` to point at a non-free image, the validator's
-`--strict` mode will fail and you should not publish that quiz.
+For private/non-commercial events, `--source wiki-any`, `--source auto`, or
+`--allow-non-free` can fetch images with unknown/non-free copyright status.
+Do not publish, redistribute, or use those fetched `data/` directories
+commercially; the repo MIT license covers the code, not non-free images.
 
 ## Development
 

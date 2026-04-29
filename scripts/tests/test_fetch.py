@@ -172,8 +172,28 @@ class FetchTests(unittest.TestCase):
             self.assertEqual(entry["wikipedia_title"], "이정후")
             self.assertEqual(entry["wikipedia_url"], "https://ko.wikipedia.org/wiki/%EC%9D%B4%EC%A0%95%ED%9B%84")
             self.assertEqual(entry["wikipedia_lang"], "ko")
+            self.assertEqual(entry["image_source"], "wikipedia-free")
             self.assertIn("fetched_at", entry)
             self.assertTrue((Path(tmp) / "images" / "lee-jung-hoo.jpg").exists())
+
+    def test_default_source_is_wiki_free_backward_compat(self):
+        seen_urls = []
+
+        def side_effect(request, *args, **kwargs):
+            url = request.full_url if hasattr(request, "full_url") else str(request)
+            seen_urls.append(url)
+            return route_urlopen(request, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp, patch("urllib.request.urlopen", side_effect=side_effect), patch("time.sleep"):
+            list_path = Path(tmp) / "list.jsonl"
+            write_jsonl(list_path, [{"id": "lee-jung-hoo", "name": "이정후", "category": "야구선수"}])
+            fetch.fetch_all(list_path)
+            entry = read_jsonl(list_path)[0]
+
+            self.assertEqual(entry["fetch_status"], "ok")
+            self.assertEqual(entry["image_source"], "wikipedia-free")
+            self.assertTrue(any("pilicense=free" in url for url in seen_urls if "prop=pageimages" in url))
+            self.assertFalse(any("duckduckgo.com" in url or "bing.com" in url for url in seen_urls))
 
     def test_search_ko_miss_en_hit(self):
         def side_effect(request, *args, **kwargs):
@@ -219,6 +239,105 @@ class FetchTests(unittest.TestCase):
             write_jsonl(list_path, [{"id": "lee-jung-hoo", "name": "이정후", "category": "야구선수"}])
             fetch.fetch_all(list_path)
             self.assertEqual(read_jsonl(list_path)[0]["fetch_status"], "no_free_image")
+
+    def test_wiki_any_finds_when_free_misses(self):
+        def side_effect(request, *args, **kwargs):
+            url = request.full_url if hasattr(request, "full_url") else str(request)
+            if "/w/rest.php/v1/search/page" in url:
+                return FakeResponse(search_payload("이정후"))
+            if "prop=pageimages" in url and "pilicense=free" in url:
+                return FakeResponse(no_original_payload())
+            if "prop=pageimages" in url and "pilicense=free" not in url:
+                return FakeResponse(pageimage_payload(source="https://upload.wikimedia.org/wikipedia/en/a/aa/Any_Image.jpg"))
+            if "prop=imageinfo" in url:
+                return FakeResponse(license_payload(license_name="Non-free", license_url="", artist=""))
+            if "upload.wikimedia.org" in url:
+                return FakeResponse(b"\xff\xd8\xff")
+            raise AssertionError(url)
+
+        with tempfile.TemporaryDirectory() as tmp, patch("urllib.request.urlopen", side_effect=side_effect), patch("time.sleep"):
+            list_path = Path(tmp) / "list.jsonl"
+            write_jsonl(list_path, [{"id": "lee-jung-hoo", "name": "이정후", "category": "야구선수"}])
+            fetch.fetch_all(list_path, source="wiki-any")
+            entry = read_jsonl(list_path)[0]
+            self.assertEqual(entry["fetch_status"], "ok")
+            self.assertEqual(entry["image_source"], "wikipedia-any")
+            self.assertEqual(entry["image_path"], "images/lee-jung-hoo.jpg")
+
+    def test_duckduckgo_fallback(self):
+        def side_effect(request, *args, **kwargs):
+            url = request.full_url if hasattr(request, "full_url") else str(request)
+            if "/w/rest.php/v1/search/page" in url:
+                return FakeResponse(search_payload("이정후"))
+            if "prop=pageimages" in url:
+                return FakeResponse(no_original_payload())
+            if "duckduckgo.com/?" in url:
+                return FakeResponse(b'<script>var x="vqd=12345-abc";</script>')
+            if "duckduckgo.com/i.js" in url:
+                return FakeResponse({"results": [{"image": "https://x.com/photo.jpg", "width": 600, "height": 800}]})
+            if "https://x.com/photo.jpg" in url:
+                return FakeResponse(b"\xff\xd8\xff")
+            raise AssertionError(url)
+
+        with tempfile.TemporaryDirectory() as tmp, patch("urllib.request.urlopen", side_effect=side_effect), patch("time.sleep"):
+            list_path = Path(tmp) / "list.jsonl"
+            write_jsonl(list_path, [{"id": "lee-jung-hoo", "name": "이정후", "category": "야구선수"}])
+            fetch.fetch_all(list_path, source="auto")
+            entry = read_jsonl(list_path)[0]
+            self.assertEqual(entry["fetch_status"], "ok")
+            self.assertEqual(entry["image_source"], "duckduckgo")
+            self.assertEqual(entry["image_width"], 600)
+            self.assertEqual(entry["license"], "unknown")
+
+    def test_bing_fallback(self):
+        def side_effect(request, *args, **kwargs):
+            url = request.full_url if hasattr(request, "full_url") else str(request)
+            if "/w/rest.php/v1/search/page" in url:
+                return FakeResponse(search_payload("이정후"))
+            if "prop=pageimages" in url:
+                return FakeResponse(no_original_payload())
+            if "duckduckgo.com/?" in url:
+                return FakeResponse(b'vqd="12345-abc"')
+            if "duckduckgo.com/i.js" in url:
+                return FakeResponse({"results": []})
+            if "bing.com/images/async" in url:
+                return FakeResponse(b'{&quot;murl&quot;:&quot;https://x.com/celeb.jpg&quot;}')
+            if "https://x.com/celeb.jpg" in url:
+                return FakeResponse(b"\xff\xd8\xff")
+            raise AssertionError(url)
+
+        with tempfile.TemporaryDirectory() as tmp, patch("urllib.request.urlopen", side_effect=side_effect), patch("time.sleep"):
+            list_path = Path(tmp) / "list.jsonl"
+            write_jsonl(list_path, [{"id": "lee-jung-hoo", "name": "이정후", "category": "야구선수"}])
+            fetch.fetch_all(list_path, source="auto")
+            entry = read_jsonl(list_path)[0]
+            self.assertEqual(entry["fetch_status"], "ok")
+            self.assertEqual(entry["image_source"], "bing")
+            self.assertEqual(entry["image_width"], 0)
+            self.assertEqual(entry["image_height"], 0)
+
+    def test_auto_chain_all_fail(self):
+        def side_effect(request, *args, **kwargs):
+            url = request.full_url if hasattr(request, "full_url") else str(request)
+            if "/w/rest.php/v1/search/page" in url:
+                return FakeResponse(search_payload("이정후"))
+            if "prop=pageimages" in url:
+                return FakeResponse(no_original_payload())
+            if "duckduckgo.com/?" in url:
+                return FakeResponse(b'vqd="12345-abc"')
+            if "duckduckgo.com/i.js" in url:
+                return FakeResponse({"results": []})
+            if "bing.com/images/async" in url:
+                return FakeResponse(b"<html></html>")
+            raise AssertionError(url)
+
+        with tempfile.TemporaryDirectory() as tmp, patch("urllib.request.urlopen", side_effect=side_effect), patch("time.sleep"):
+            list_path = Path(tmp) / "list.jsonl"
+            write_jsonl(list_path, [{"id": "lee-jung-hoo", "name": "이정후", "category": "야구선수"}])
+            fetch.fetch_all(list_path, source="auto")
+            entry = read_jsonl(list_path)[0]
+            self.assertEqual(entry["fetch_status"], "not_found")
+            self.assertNotIn("image_path", entry)
 
     def test_too_small(self):
         def side_effect(request, *args, **kwargs):

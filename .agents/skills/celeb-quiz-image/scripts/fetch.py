@@ -1,12 +1,12 @@
-"""Fetch free-licensed Wikimedia images for celeb-quiz JSONL entries.
+"""Fetch images for celeb-quiz JSONL entries.
 
 Run from the repository root:
     python3 .agents/skills/celeb-quiz-image/scripts/fetch.py data/quizzes/name/list.jsonl
 
-The script searches Korean Wikipedia first, then English Wikipedia, verifies the
-selected page image is free-licensed via Commons metadata, downloads it into the
-quiz's images/ directory, and atomically rewrites list.jsonl with enrichment
-fields. It uses only Python's standard library.
+By default the script searches Korean Wikipedia first, then English Wikipedia,
+and keeps the historic free-licensed Wikimedia behavior. Optional source modes
+can relax the license filter and fall back to DuckDuckGo/Bing image search for
+private/non-commercial quizzes. It uses only Python's standard library.
 """
 
 from __future__ import annotations
@@ -30,8 +30,10 @@ DEFAULT_USER_AGENT = "celeb-quiz-image/1.0 (+https://github.com/vkehfdl1/celeb-q
 SEARCH_ENDPOINT = "https://{lang}.wikipedia.org/w/rest.php/v1/search/page"
 PAGEIMAGE_ENDPOINT = "https://{lang}.wikipedia.org/w/api.php"
 COMMONS_ENDPOINT = "https://commons.wikimedia.org/w/api.php"
+BROWSER_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 FETCH_STATUSES = ("ok", "not_found", "no_free_image", "too_small", "error")
+SOURCES = ("wiki-free", "wiki-any", "auto")
 
 
 _last_call_at = 0.0
@@ -82,19 +84,19 @@ def wikipedia_search(query: str, lang: str, user_agent: str = DEFAULT_USER_AGENT
     return [page for page in pages if isinstance(page, dict)]
 
 
-def wikipedia_pageimage(title: str, lang: str, user_agent: str = DEFAULT_USER_AGENT) -> dict:
-    """Return pageimages API data for a page title with pilicense=free."""
-    params = urllib.parse.urlencode(
-        {
-            "action": "query",
-            "prop": "pageimages",
-            "titles": title,
-            "piprop": "thumbnail|original|name",
-            "pithumbsize": "800",
-            "pilicense": "free",
-            "format": "json",
-        }
-    )
+def wikipedia_pageimage(title: str, lang: str, user_agent: str = DEFAULT_USER_AGENT, license_filter: str | None = "free") -> dict:
+    """Return pageimages API data for a page title, optionally filtered by license."""
+    params_dict = {
+        "action": "query",
+        "prop": "pageimages",
+        "titles": title,
+        "piprop": "thumbnail|original|name",
+        "pithumbsize": "800",
+        "format": "json",
+    }
+    if license_filter:
+        params_dict["pilicense"] = license_filter
+    params = urllib.parse.urlencode(params_dict)
     data = api_json(f"{PAGEIMAGE_ENDPOINT.format(lang=lang)}?{params}", user_agent)
     pages = data.get("query", {}).get("pages", {})
     if not isinstance(pages, dict) or not pages:
@@ -139,18 +141,117 @@ def download_image(source_url: str, destination: pathlib.Path, user_agent: str =
     destination.write_bytes(payload)
 
 
-def fetch_one(entry: dict, list_path: pathlib.Path, force: bool = False, user_agent: str = DEFAULT_USER_AGENT) -> dict:
-    """Fetch and enrich one JSONL entry, returning the mutated entry."""
+def duckduckgo_image_search(query: str, user_agent: str = DEFAULT_USER_AGENT) -> dict | None:
+    """Return the first usable DuckDuckGo image result for a query."""
+    headers = {
+        "User-Agent": BROWSER_USER_AGENT,
+        "Referer": "https://duckduckgo.com/",
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+    }
+    search_url = "https://duckduckgo.com/?" + urllib.parse.urlencode({"q": query, "iax": "images", "ia": "images"})
+    html_text = api_bytes(search_url, user_agent, headers=headers).decode("utf-8", errors="replace")
+    token_match = re.search(r"vqd=([\d-]+)", html_text) or re.search(r'vqd="([^"]+)"', html_text)
+    if not token_match:
+        return None
+    params = urllib.parse.urlencode({"l": "us-en", "o": "json", "q": query, "vqd": token_match.group(1), "f": ",,,", "p": "1", "v7exp": "a"})
+    data = api_json(f"https://duckduckgo.com/i.js?{params}", user_agent, headers=headers)
+    results = data.get("results", [])
+    if not isinstance(results, list):
+        return None
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        image_url = str(result.get("image", ""))
+        if image_extension(image_url) not in ALLOWED_EXTENSIONS:
+            continue
+        width = int(result.get("width") or 0)
+        height = int(result.get("height") or 0)
+        if max(width, height) < 400:
+            continue
+        return {"image_url": image_url, "image_width": width, "image_height": height, "source": "duckduckgo"}
+    return None
+
+
+def bing_image_search(query: str, user_agent: str = DEFAULT_USER_AGENT) -> dict | None:
+    """Return the first usable Bing Images result for a query."""
+    headers = {
+        "User-Agent": BROWSER_USER_AGENT,
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+    params = urllib.parse.urlencode({"q": query, "first": "1", "count": "10", "adlt": "moderate"})
+    html_text = api_bytes(f"https://www.bing.com/images/async?{params}", user_agent, headers=headers).decode("utf-8", errors="replace")
+    matches = re.findall(r"murl&quot;:&quot;(https?://[^&]+)&quot;", html_text)
+    if not matches:
+        matches = re.findall(r'"murl":"(https?://[^"]+)"', html_text)
+    for match in matches:
+        image_url = html.unescape(match)
+        if image_extension(image_url) in ALLOWED_EXTENSIONS:
+            return {"image_url": image_url, "image_width": 0, "image_height": 0, "source": "bing"}
+    return None
+
+
+def fetch_one(
+    entry: dict,
+    list_path: pathlib.Path,
+    force: bool = False,
+    user_agent: str = DEFAULT_USER_AGENT,
+    source: str = "wiki-free",
+) -> dict:
+    """Fetch and enrich one JSONL entry, returning the mutated entry.
+
+    Wikipedia sources keep the historic 400px long-side validation. Web image
+    fallbacks may not expose dimensions before download, so zero dimensions do
+    not trigger the too_small guard for DuckDuckGo/Bing results.
+    """
     if is_idempotent_hit(entry, list_path) and not force:
         print(f"[skip] {entry.get('name', '')} already ok", file=sys.stderr)
         return entry
+    if source not in SOURCES:
+        raise FetchError(f"unknown source: {source}")
 
     name = str(entry.get("name", "")).strip()
     if not name:
         raise FetchError("entry missing name")
-    slug = derive_id(entry)
     query = f"{name} {entry.get('disambiguation', '')}".strip()
 
+    if source in ("wiki-free", "auto"):
+        result = fetch_wikipedia_source(entry, list_path, name, query, user_agent, license_filter="free", source_label="wikipedia-free")
+        if result is not None:
+            return result
+        if source == "wiki-free":
+            entry["fetch_status"] = "not_found" if entry.get("_wiki_search_miss") else "no_free_image"
+            entry.pop("_wiki_search_miss", None)
+            return entry
+
+    if source in ("wiki-any", "auto"):
+        result = fetch_wikipedia_source(entry, list_path, name, query, user_agent, license_filter=None, source_label="wikipedia-any")
+        if result is not None:
+            return result
+        if source == "wiki-any":
+            entry["fetch_status"] = "not_found"
+            entry.pop("_wiki_search_miss", None)
+            return entry
+
+    entry.pop("_wiki_search_miss", None)
+    for fn, source_label in ((duckduckgo_image_search, "duckduckgo"), (bing_image_search, "bing")):
+        result = fn(query, user_agent)
+        if result:
+            return enrich_from_web(entry, result, list_path, user_agent, source_label)
+
+    entry["fetch_status"] = "not_found"
+    return entry
+
+
+def fetch_wikipedia_source(
+    entry: dict,
+    list_path: pathlib.Path,
+    name: str,
+    query: str,
+    user_agent: str,
+    license_filter: str | None,
+    source_label: str,
+) -> dict | None:
+    """Try one Wikipedia source mode and return enriched entry on success."""
     found_lang = ""
     found_page = None
     for lang in ("ko", "en"):
@@ -163,15 +264,15 @@ def fetch_one(entry: dict, list_path: pathlib.Path, force: bool = False, user_ag
             break
 
     if found_page is None:
-        entry["fetch_status"] = "not_found"
-        return entry
+        entry["_wiki_search_miss"] = True
+        return None
 
     title = str(found_page.get("title", ""))
-    pageimage = wikipedia_pageimage(title, found_lang, user_agent)
+    pageimage = wikipedia_pageimage(title, found_lang, user_agent, license_filter=license_filter)
     original = pageimage.get("original")
     if not isinstance(original, dict) or not original.get("source"):
-        entry["fetch_status"] = "no_free_image"
-        return entry
+        entry.pop("_wiki_search_miss", None)
+        return None
 
     width = int(original.get("width") or 0)
     height = int(original.get("height") or 0)
@@ -179,6 +280,23 @@ def fetch_one(entry: dict, list_path: pathlib.Path, force: bool = False, user_ag
         entry["fetch_status"] = "too_small"
         return entry
 
+    return enrich_from_wikipedia(entry, pageimage, title, found_lang, list_path, user_agent, source_label, width, height)
+
+
+def enrich_from_wikipedia(
+    entry: dict,
+    pageimage: dict,
+    title: str,
+    found_lang: str,
+    list_path: pathlib.Path,
+    user_agent: str,
+    source_label: str,
+    width: int,
+    height: int,
+) -> dict:
+    """Download and attach metadata for a Wikipedia page image."""
+    slug = derive_id(entry)
+    original = pageimage.get("original", {})
     source_url = str(original.get("source"))
     filename = str(pageimage.get("imagename") or pathlib.PurePosixPath(urllib.parse.urlparse(source_url).path).name)
     license_info = commons_license(filename, user_agent)
@@ -199,6 +317,33 @@ def fetch_one(entry: dict, list_path: pathlib.Path, force: bool = False, user_ag
             "wikipedia_title": title,
             "wikipedia_url": f"https://{found_lang}.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}",
             "wikipedia_lang": found_lang,
+            "image_source": source_label,
+            "fetched_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "fetch_status": "ok",
+        }
+    )
+    entry.pop("_wiki_search_miss", None)
+    return entry
+
+
+def enrich_from_web(entry: dict, result: dict, list_path: pathlib.Path, user_agent: str, source_label: str) -> dict:
+    """Download and attach metadata for a web image search result."""
+    slug = derive_id(entry)
+    source_url = str(result.get("image_url", ""))
+    image_path = pathlib.Path("images") / f"{slug}{image_extension(source_url)}"
+    download_image(source_url, list_path.parent / image_path, user_agent)
+    entry.update(
+        {
+            "image_path": image_path.as_posix(),
+            "image_source_url": source_url,
+            "image_width": int(result.get("image_width") or 0),
+            "image_height": int(result.get("image_height") or 0),
+            "license": "unknown",
+            "license_short": "unknown",
+            "license_url": "",
+            "artist": "",
+            "attribution_html": f"Source: {source_label}",
+            "image_source": source_label,
             "fetched_at": datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
             "fetch_status": "ok",
         }
@@ -211,6 +356,7 @@ def fetch_all(
     force: bool = False,
     limit: int | None = None,
     user_agent: str = DEFAULT_USER_AGENT,
+    source: str = "wiki-free",
 ) -> dict[str, int]:
     """Fetch images for all entries in a JSONL file and atomically rewrite it."""
     path = pathlib.Path(list_path)
@@ -222,7 +368,7 @@ def fetch_all(
         processed += 1
         try:
             print(f"[fetch] {entry.get('name', f'#{index + 1}')}", file=sys.stderr)
-            fetch_one(entry, path, force=force, user_agent=user_agent)
+            fetch_one(entry, path, force=force, user_agent=user_agent, source=source)
         except (FetchError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, OSError, ValueError) as exc:
             print(f"[error] {entry.get('name', f'#{index + 1}')}: {exc}", file=sys.stderr)
             entry["fetch_status"] = "error"
@@ -235,13 +381,21 @@ def fetch_all(
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint."""
-    parser = argparse.ArgumentParser(description="Fetch free Wikimedia images for celeb-quiz list.jsonl entries.")
+    parser = argparse.ArgumentParser(description="Fetch images for celeb-quiz list.jsonl entries.")
     parser.add_argument("list_jsonl", type=pathlib.Path, help="Path to list.jsonl")
     parser.add_argument("--force", action="store_true", help="Refetch even if fetch_status=ok and image exists")
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N entries")
     parser.add_argument("--user-agent", default=DEFAULT_USER_AGENT, help="Override the Wikimedia User-Agent header")
+    parser.add_argument(
+        "--source",
+        choices=SOURCES,
+        default="wiki-free",
+        help="Image source strategy: wiki-free (default), wiki-any, or auto fallback chain",
+    )
+    parser.add_argument("--allow-non-free", action="store_true", help="Alias for --source=auto for private/non-commercial use")
     args = parser.parse_args(argv)
-    fetch_all(args.list_jsonl, force=args.force, limit=args.limit, user_agent=args.user_agent)
+    source = "auto" if args.allow_non_free else args.source
+    fetch_all(args.list_jsonl, force=args.force, limit=args.limit, user_agent=args.user_agent, source=source)
     return 0
 
 
@@ -277,8 +431,8 @@ def image_extension(source_url: str) -> str:
     return suffix if suffix in ALLOWED_EXTENSIONS else ".jpg"
 
 
-def api_json(url: str, user_agent: str) -> dict:
-    payload = api_bytes(url, user_agent)
+def api_json(url: str, user_agent: str, headers: dict[str, str] | None = None) -> dict:
+    payload = api_bytes(url, user_agent, headers=headers)
     try:
         data = json.loads(payload.decode("utf-8"))
     except UnicodeDecodeError as exc:
@@ -288,9 +442,12 @@ def api_json(url: str, user_agent: str) -> dict:
     return data
 
 
-def api_bytes(url: str, user_agent: str) -> bytes:
+def api_bytes(url: str, user_agent: str, headers: dict[str, str] | None = None) -> bytes:
     global _last_call_at
-    request = urllib.request.Request(url, headers={"User-Agent": user_agent})
+    request_headers = {"User-Agent": user_agent}
+    if headers:
+        request_headers.update(headers)
+    request = urllib.request.Request(url, headers=request_headers)
     for attempt in range(5):
         rate_limit()
         try:
