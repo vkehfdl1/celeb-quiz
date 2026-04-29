@@ -34,10 +34,6 @@
   --font-ui: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR",
              "Pretendard Variable", "Pretendard", "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-
-  --countdown-size: clamp(6rem, 18vw, 14rem);
-  --reveal-size: clamp(2.5rem, 8vw, 6rem);
-  --dang-size: clamp(8rem, 22vw, 18rem);
 }
 
 /* ---------- Reset ---------- */
@@ -364,19 +360,36 @@ p {
 }
 
 /* ---------- Player window (the public-facing screen) ---------- */
+:root {
+  --countdown-size: clamp(3rem, 9vw, 7rem);
+  --dang-size: clamp(3.5rem, 10vw, 8rem);
+  --reveal-size: clamp(2rem, 6vw, 4.5rem);
+  --player-bar: clamp(5rem, 14vh, 10rem);
+}
 .player {
   position: fixed;
   inset: 0;
   background: #000;
   color: var(--fg);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
-.player .stage {
-  position: absolute;
-  inset: 0;
+.player .top-bar {
+  flex: 0 0 var(--player-bar);
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+  z-index: 2;
+}
+.player .stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-4);
 }
 .player .stage img {
   max-width: 100%;
@@ -387,10 +400,13 @@ p {
 .player .stage img.fade-out {
   opacity: 0;
 }
+.player .bottom-bar {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 2;
+  min-height: var(--space-12);
+}
 .player .countdown {
-  position: absolute;
-  top: var(--space-6);
-  right: var(--space-8);
   font-family: var(--font-mono);
   font-weight: 700;
   font-size: var(--countdown-size);
@@ -406,13 +422,9 @@ p {
   color: var(--danger);
 }
 .player .dang {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   font-weight: 800;
   font-size: var(--dang-size);
+  line-height: 1;
   color: var(--danger);
   text-shadow: 0 0 60px rgba(255, 90, 90, 0.5);
   pointer-events: none;
@@ -423,21 +435,22 @@ p {
   to   { transform: scale(1.06); opacity: 1; }
 }
 .player .reveal {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  padding: var(--space-12) var(--space-8);
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0.92) 30%, rgba(0, 0, 0, 0) 100%);
+  padding: var(--space-4) var(--space-8) var(--space-3);
   text-align: center;
   font-size: var(--reveal-size);
   font-weight: 700;
   letter-spacing: -0.01em;
-  transform: translateY(110%);
-  transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 280ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              opacity 200ms ease,
+              padding 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .player .reveal.shown {
-  transform: translateY(0);
+  max-height: 30vh;
+  opacity: 1;
+  padding-top: var(--space-6);
 }
 .player .reveal .category {
   display: block;
@@ -447,14 +460,10 @@ p {
   margin-top: 0.3em;
 }
 .player .attribution {
-  position: absolute;
-  bottom: var(--space-3);
-  right: var(--space-4);
-  font-size: 0.75rem;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  font-size: 0.8rem;
   color: rgba(245, 245, 245, 0.55);
   text-align: right;
-  max-width: 50ch;
-  pointer-events: auto;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
 }
 .player .attribution a {
@@ -473,6 +482,8 @@ p {
   font-size: 1.4rem;
   text-align: center;
   padding: var(--space-8);
+  z-index: 3;
+  background: #000;
 }
 .player .empty .hint,
 .player .waiting .hint {

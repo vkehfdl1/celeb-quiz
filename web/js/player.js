@@ -49,17 +49,20 @@ function showEntry(entry, countdown) {
   currentEntry = entry;
   dom.waiting.style.display = 'none';
   dom.stage.hidden = false;
-  dom.countdown.hidden = false;
-  dom.attribution.hidden = false;
   dom.dang.hidden = true;
+  dom.countdown.hidden = false;
+  dom.countdown.classList.remove('warn', 'danger');
+  dom.attribution.hidden = false;
   hideReveal();
 
-  dom.photo.classList.add('fade-out');
-  setTimeout(() => {
-    dom.photo.src = entry.image_url;
-    dom.photo.alt = entry.name;
-    dom.photo.classList.remove('fade-out');
-  }, 60);
+  if (dom.photo.src !== entry.image_url) {
+    dom.photo.classList.add('fade-out');
+    setTimeout(() => {
+      dom.photo.src = entry.image_url;
+      dom.photo.alt = entry.name;
+      dom.photo.classList.remove('fade-out');
+    }, 60);
+  }
 
   setCountdown(countdown ?? initialCountdown);
   renderAttribution(entry);
@@ -73,6 +76,7 @@ function setCountdown(n) {
 }
 
 function showDang() {
+  if (!currentEntry) return;
   dom.countdown.hidden = true;
   dom.dang.hidden = false;
 }
@@ -121,7 +125,9 @@ sync.subscribe(EVENTS.RESTART, ({ entry, countdown }) => {
 sync.subscribe(EVENTS.TICK, ({ remaining }) => {
   setCountdown(remaining);
 });
-sync.subscribe(EVENTS.EXPIRED, () => {
+sync.subscribe(EVENTS.EXPIRED, ({ entry }) => {
+  if (!currentEntry) return;
+  if (entry && entry.id && entry.id !== currentEntry.id) return;
   showDang();
 });
 sync.subscribe(EVENTS.REVEAL, ({ entry }) => {

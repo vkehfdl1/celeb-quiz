@@ -15,19 +15,22 @@
       <div class="hint">Host 창에서 Start 버튼을 눌러주세요</div>
     </div>
 
+    <div class="top-bar">
+      <div class="countdown" id="countdown" hidden>--</div>
+      <div class="dang" id="dang" hidden>땡!</div>
+    </div>
+
     <div class="stage" id="stage" hidden>
       <img id="photo" alt="" referrerpolicy="no-referrer">
     </div>
 
-    <div class="countdown" id="countdown" hidden>--</div>
-    <div class="dang" id="dang" hidden>땡!</div>
-
-    <div class="reveal" id="reveal">
-      <div id="reveal-name"></div>
-      <span class="category" id="reveal-category"></span>
+    <div class="bottom-bar">
+      <div class="reveal" id="reveal">
+        <div id="reveal-name"></div>
+        <span class="category" id="reveal-category"></span>
+      </div>
+      <div class="attribution" id="attribution" hidden></div>
     </div>
-
-    <div class="attribution" id="attribution" hidden></div>
   </div>
 
   <script type="module" src="/web/js/player.js"></script>
