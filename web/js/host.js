@@ -23,6 +23,8 @@ let revealed = false;
 let countdown = initialCountdown;
 let countdownTimer = null;
 let expired = false;
+let started = false;
+let playerConnected = false;
 
 const dom = {
   title: document.getElementById('quiz-title'),
@@ -62,13 +64,25 @@ async function init() {
   resetQueue();
 
   sync.subscribe(EVENTS.PONG, () => {
+    const wasDisconnected = !playerConnected;
+    playerConnected = true;
     setStatus('연결됨', 'ok');
     hideDisconnect();
+    if (wasDisconnected) {
+      if (isIdle()) {
+        sync.publish(EVENTS.CLOSE, {});
+      } else {
+        sync.publish(EVENTS.START, currentPayload());
+        if (revealed) sync.publish(EVENTS.REVEAL, { entry: serializeEntry(currentEntry()) });
+        if (expired) sync.publish(EVENTS.EXPIRED, { entry: serializeEntry(currentEntry()) });
+      }
+    }
   });
   sync.enableHeartbeat({
     intervalMs: 1000,
     timeoutMs: 3000,
     onTimeout: () => {
+      playerConnected = false;
       setStatus('Player 끊김', 'warn');
       showDisconnect();
     },
@@ -86,7 +100,7 @@ async function init() {
     else if (e.key === 'Escape') { e.preventDefault(); restart(); }
   });
 
-  startCurrent();
+  enterIdleState();
 }
 
 function setStatus(text, kind = '') {
@@ -100,62 +114,66 @@ function hideDisconnect() { dom.disconnect.classList.remove('shown'); }
 
 function resetQueue() {
   queue = shuffle(entries);
-  cursor = 0;
+  cursor = -1;
+}
+
+function isIdle() {
+  return cursor < 0;
 }
 
 function currentEntry() {
   return queue[cursor];
 }
 
-function startCurrent() {
-  const e = currentEntry();
-  if (!e) return;
-  revealed = false;
-  expired = false;
-  countdown = initialCountdown;
-  renderHostUI();
-  sync.publish(EVENTS.START, {
+function currentPayload() {
+  return {
     quiz: quizName,
-    entry: serializeEntry(e),
-    countdown,
-    index: cursor,
-    total: queue.length,
-  });
-  startTimer();
-}
-
-function advance() {
-  // Wrap to 0 when reaching end of queue; duplicates are fine per spec.
-  cursor = (cursor + 1) % queue.length;
-  startCurrent();
-  sync.publish(EVENTS.NEXT, {
     entry: serializeEntry(currentEntry()),
     countdown,
     index: cursor,
     total: queue.length,
-  });
+  };
+}
+
+function enterIdleState() {
+  cursor = -1;
+  revealed = false;
+  expired = false;
+  countdown = initialCountdown;
+  started = false;
+  stopTimer();
+  renderHostUI();
+  sync.publish(EVENTS.CLOSE, {});
+}
+
+function advance() {
+  const wasIdle = isIdle();
+  cursor = wasIdle ? 0 : (cursor + 1) % queue.length;
+  revealed = false;
+  expired = false;
+  countdown = initialCountdown;
+  started = true;
+  renderHostUI();
+  sync.publish(wasIdle ? EVENTS.START : EVENTS.NEXT, currentPayload());
+  startTimer();
 }
 
 function revealAnswer() {
-  if (!currentEntry()) return;
+  if (isIdle() || !currentEntry()) return;
   revealed = true;
   renderHostUI();
   sync.publish(EVENTS.REVEAL, { entry: serializeEntry(currentEntry()) });
 }
 
 function restart() {
+  stopTimer();
   resetQueue();
   expired = false;
   revealed = false;
   countdown = initialCountdown;
+  started = false;
   renderHostUI();
-  sync.publish(EVENTS.RESTART, {
-    entry: serializeEntry(currentEntry()),
-    countdown,
-    index: cursor,
-    total: queue.length,
-  });
-  restartTimer();
+  sync.publish(EVENTS.CLOSE, {});
 }
 
 function reopenPlayer() {
@@ -186,16 +204,27 @@ function tick() {
 }
 
 function renderHostUI() {
+  if (isIdle()) {
+    dom.countdown.textContent = '–';
+    dom.countdown.classList.remove('expired');
+    dom.photo.removeAttribute('src');
+    dom.photo.alt = '';
+    dom.progress.textContent = `0 / ${queue.length} · Next 버튼으로 시작`;
+    dom.category.textContent = '';
+    dom.name.hidden = true;
+    dom.name.textContent = '';
+    dom.attribution.innerHTML = '';
+    return;
+  }
   const e = currentEntry();
   if (!e) return;
   dom.countdown.textContent = expired ? '땡!' : String(countdown);
   dom.countdown.classList.toggle('expired', expired);
-  // image_path is relative to the quiz dir; resolve via QUIZ_BASE/<slug>/.
   dom.photo.src = `${QUIZ_BASE}/${quizName}/${e.image_path}`;
   dom.photo.alt = e.name;
   dom.progress.textContent = `${cursor + 1} / ${queue.length}`;
   dom.category.textContent = e.category || '';
-  dom.name.hidden = !revealed;
+  dom.name.hidden = false;
   dom.name.textContent = e.name;
   dom.attribution.innerHTML = renderAttribution(e);
 }
