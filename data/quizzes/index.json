@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "quizzes": [
+    {
+      "name": "example-historical-figures",
+      "title": "한국 위인 5인",
+      "count": 5,
+      "valid_count": 5,
+      "category": "위인"
+    }
+  ],
+  "updated_at": "2026-04-29T16:01:44Z"
+}
