@@ -166,7 +166,7 @@ def duckduckgo_image_search(query: str, user_agent: str = DEFAULT_USER_AGENT) ->
             continue
         width = int(result.get("width") or 0)
         height = int(result.get("height") or 0)
-        if max(width, height) < 400:
+        if width and height and max(width, height) < 200:
             continue
         return {"image_url": image_url, "image_width": width, "image_height": height, "source": "duckduckgo"}
     return None
@@ -214,8 +214,15 @@ def fetch_one(
         raise FetchError("entry missing name")
     query = f"{name} {entry.get('disambiguation', '')}".strip()
 
+    cascade = source == "auto"
     if source in ("wiki-free", "auto"):
-        result = fetch_wikipedia_source(entry, list_path, name, query, user_agent, license_filter="free", source_label="wikipedia-free")
+        try:
+            result = fetch_wikipedia_source(entry, list_path, name, query, user_agent, license_filter="free", source_label="wikipedia-free", cascade_too_small=cascade)
+        except (FetchError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, OSError, ValueError) as exc:
+            if source == "wiki-free":
+                raise
+            print(f"[warn] {name}: wiki-free failed ({exc}); trying next source", file=sys.stderr)
+            result = None
         if result is not None:
             return result
         if source == "wiki-free":
@@ -224,7 +231,13 @@ def fetch_one(
             return entry
 
     if source in ("wiki-any", "auto"):
-        result = fetch_wikipedia_source(entry, list_path, name, query, user_agent, license_filter=None, source_label="wikipedia-any")
+        try:
+            result = fetch_wikipedia_source(entry, list_path, name, query, user_agent, license_filter=None, source_label="wikipedia-any", cascade_too_small=cascade)
+        except (FetchError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, OSError, ValueError) as exc:
+            if source == "wiki-any":
+                raise
+            print(f"[warn] {name}: wiki-any failed ({exc}); trying next source", file=sys.stderr)
+            result = None
         if result is not None:
             return result
         if source == "wiki-any":
@@ -234,9 +247,26 @@ def fetch_one(
 
     entry.pop("_wiki_search_miss", None)
     for fn, source_label in ((duckduckgo_image_search, "duckduckgo"), (bing_image_search, "bing")):
-        result = fn(query, user_agent)
+        try:
+            result = fn(query, user_agent)
+        except (FetchError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, OSError, ValueError) as exc:
+            print(f"[warn] {name}: {source_label} failed ({exc}); trying next source", file=sys.stderr)
+            continue
         if result:
-            return enrich_from_web(entry, result, list_path, user_agent, source_label)
+            try:
+                entry.pop("_wiki_small_fallback", None)
+                return enrich_from_web(entry, result, list_path, user_agent, source_label)
+            except (FetchError, urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError) as exc:
+                print(f"[warn] {name}: {source_label} download failed ({exc}); trying next source", file=sys.stderr)
+                continue
+
+    stash = entry.pop("_wiki_small_fallback", None)
+    if stash is not None:
+        print(f"[fallback] {name}: using small wiki image ({stash['width']}x{stash['height']})", file=sys.stderr)
+        return enrich_from_wikipedia(
+            entry, stash["pageimage"], stash["title"], stash["found_lang"],
+            list_path, user_agent, stash["source_label"], stash["width"], stash["height"],
+        )
 
     entry["fetch_status"] = "not_found"
     return entry
@@ -250,6 +280,7 @@ def fetch_wikipedia_source(
     user_agent: str,
     license_filter: str | None,
     source_label: str,
+    cascade_too_small: bool = False,
 ) -> dict | None:
     """Try one Wikipedia source mode and return enriched entry on success."""
     found_lang = ""
@@ -277,8 +308,16 @@ def fetch_wikipedia_source(
     width = int(original.get("width") or 0)
     height = int(original.get("height") or 0)
     if max(width, height) < 400:
-        entry["fetch_status"] = "too_small"
-        return entry
+        if not cascade_too_small:
+            entry["fetch_status"] = "too_small"
+            return entry
+        entry.pop("_wiki_search_miss", None)
+        if "_wiki_small_fallback" not in entry:
+            entry["_wiki_small_fallback"] = {
+                "pageimage": pageimage, "title": title, "found_lang": found_lang,
+                "source_label": source_label, "width": width, "height": height,
+            }
+        return None
 
     return enrich_from_wikipedia(entry, pageimage, title, found_lang, list_path, user_agent, source_label, width, height)
 
