@@ -29,7 +29,7 @@ bash scripts/serve.sh        # macOS / Linux
 scripts\serve.bat            # Windows
 ```
 
-Open `http://localhost:8000/web/` in your primary browser. Pick the bundled
+Open `http://localhost:8765/web/` in your primary browser. Pick the bundled
 `example-historical-figures` quiz, set a countdown, and click **Start**.
 
 A second browser window (the **player**) pops up. Drag it to your second monitor
@@ -112,9 +112,36 @@ python3 .agents/skills/celeb-quiz-setup/scripts/validate.py \
 
 Pass `--strict` in CI to fail on any non-ok entry.
 
+## Admin UI
+
+For day-to-day curation (replace a wrong photo, add a missing person, delete
+someone) without re-running the skills, open the admin UI:
+
+```
+http://localhost:8765/admin/
+```
+
+Features:
+
+- **Replace photo by paste** — click a card to select it, then `Cmd+V`
+  (macOS) or `Ctrl+V` (Windows/Linux) anywhere on the page to paste a
+  screenshot or copied image.
+- **Replace photo by file upload** — click `📁 파일` to pick a local image.
+- **Replace photo by URL** — click `🌐 URL` and paste an image link; the
+  server downloads it.
+- **Re-run fetch.py** — click `🔄 재검색` to retry the auto-fetch chain
+  (Wikipedia → DuckDuckGo → Bing) for a single entry.
+- **Add new entry** — `+ 인물 추가` form. Auto-derives a kebab-case ID from
+  the name; leave `auto-fetch` checked to immediately try fetching a photo.
+- **Delete entry** — `🗑` button removes the entry and its image file.
+
+Every mutation atomically rewrites `list.jsonl` and refreshes
+`quiz.json` + `data/quizzes/index.json`. The admin server only binds to
+`127.0.0.1` (localhost-only — no auth needed).
+
 ## Adding a new quiz manually
 
-If you'd rather skip the agent and hand-author a quiz:
+If you'd rather skip the admin UI and hand-author a quiz:
 
 1. Create `data/quizzes/<slug>/list.jsonl`. Required fields per line:
    ```json
@@ -183,7 +210,7 @@ are mocked).
 
 ```bash
 bash scripts/serve.sh
-# then open http://localhost:8000/web/tests/test.html
+# then open http://localhost:8765/web/tests/test.html
 ```
 
 The page renders pass/fail boxes for `shuffle`, `quiz-loader`, and `sync`

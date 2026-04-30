@@ -66,10 +66,15 @@ directories to a public repo or use commercially.
 
 ## 5. Stack constraints
 
-- Web app: zero npm dependencies. Vanilla HTML/CSS/JS, ES modules, served via
-  `python3 -m http.server` (or `py -3 -m http.server` on Windows).
+- Web app: zero npm dependencies. Vanilla HTML/CSS/JS, ES modules.
+- Local server: `python3 scripts/admin_server.py` (a stdlib subclass of
+  `http.server.SimpleHTTPRequestHandler`) is the canonical launcher. It serves
+  static files (web/, data/) AND exposes `/api/...` mutation endpoints + an
+  `/admin/` curation UI. Binds to `127.0.0.1` only — never `0.0.0.0`. Do not
+  fall back to `python3 -m http.server` (no admin endpoints).
 - Python scripts: zero pip dependencies. `urllib`, `json`, `hashlib`, `pathlib`,
-  `argparse`, `unittest` from stdlib only.
+  `argparse`, `unittest`, `http.server`, `email.parser`, `threading`,
+  `importlib.util` from stdlib only.
 - All code must run on macOS and Windows.
 
 ## 6. Wikimedia API etiquette
