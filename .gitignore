@@ -35,3 +35,6 @@ data/quizzes/*/images/
 
 # Lockfiles created by fetch.py
 *.lock
+
+# Per-quiz REVIEW.md files (curation notes, not source of truth)
+data/quizzes/*/REVIEW.md
