@@ -3,11 +3,18 @@
   "quizzes": [
     {
       "name": "example-historical-figures",
-      "title": "한국 위인 5인",
+      "title": "Example Historical Figures",
       "count": 5,
       "valid_count": 5,
       "category": "위인"
+    },
+    {
+      "name": "mixed-600",
+      "title": "혼합 478인",
+      "count": 482,
+      "valid_count": 478,
+      "category": "야구선수"
     }
   ],
-  "updated_at": "2026-04-29T16:01:44Z"
+  "updated_at": "2026-04-30T07:17:30Z"
 }
