@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "name": "mixed-600",
-  "title": "혼합 478인",
+  "title": "Mixed 600",
   "category": "야구선수",
-  "count": 482,
-  "valid_count": 478,
+  "count": 457,
+  "valid_count": 454,
   "default_countdown_seconds": 7,
   "list_path": "list.jsonl",
   "created_at": "2026-04-29T17:00:09Z",
-  "updated_at": "2026-04-30T06:43:31Z",
+  "updated_at": "2026-05-02T04:36:19Z",
   "generator": {
     "setup_skill_version": "1.0.0"
   }

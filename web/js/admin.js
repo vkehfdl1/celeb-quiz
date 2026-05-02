@@ -211,6 +211,10 @@ function buildCard(entry) {
     const url = `${QUIZ_BASE}/${state.currentSlug}/${entry.image_path}?t=${entry.fetched_at || Date.now()}`;
     img.src = url;
     img.alt = entry.name || entry.id;
+    img.onerror = () => {
+      img.hidden = true;
+      placeholder.hidden = false;
+    };
     placeholder.hidden = true;
     img.hidden = false;
   } else {

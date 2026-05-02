@@ -246,6 +246,9 @@
   object-fit: cover;
   display: block;
 }
+.entry-card .entry-thumb img[hidden] {
+  display: none;
+}
 .entry-card .entry-thumb .placeholder {
   color: var(--fg-faint);
   font-size: 2rem;
@@ -257,6 +260,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+.entry-card .entry-thumb .spinner-overlay[hidden] {
+  display: none;
 }
 
 .entry-card .entry-meta {
