@@ -1,0 +1,7 @@
+tunnel: 107b1e78-1185-408b-85e9-133f3d93b5ad
+credentials-file: /Users/jeffrey/.cloudflared/107b1e78-1185-408b-85e9-133f3d93b5ad.json
+
+ingress:
+  - hostname: celeb-quiz.nomadamas.org
+    service: http://localhost:8765
+  - service: http_status:404
